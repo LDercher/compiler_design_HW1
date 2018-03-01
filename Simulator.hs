@@ -52,49 +52,72 @@ then convert back to `Int64`.  The generic `fromIntegral` function can do both
 conversions, so long as the result of the conversion is specified (in the
 types).
 
-getMemory :: Int64 -> Machine -> SByte
-getMemory addr m = mem m ! addr
-
-setMemory :: Int64 -> SByte -> Machine -> Machine
-setMemory addr val m = m{ mem = mem m // [(addr, val)] }
-
-getRegister :: Register -> Machine -> Int64
-getRegister reg m = regs m ! reg
-
-setRegister :: Register -> Int64 -> Machine -> Machine
-setRegister reg val m = m{ regs = regs m // [(reg, val)] }
-
-getOF, getZF, getSF :: Machine -> Bool
-getOF m = overflow
-    where (overflow, _, _) = flags m
-getZF m = zero
-    where (_, zero, _) = flags m
-getSF m = sign
-    where (_, _, sign) = flags m
-
-setOF, setZF, setSF :: Bool -> Machine -> Machine
-setOF b m = m{ flags = (b, zero, sign) }
-    where (overflow, zero, sign) = flags m
-setZF b m = m{ flags = (overflow, b, sign) }
-    where (overflow, zero, sign) = flags m
-setSF b m = m{ flags = (overflow, zero, b) }
-    where (overflow, zero, sign) = flags m
-
-clearFlags :: Machine -> Machine
-clearFlags m = m{ flags = (False, False, False) }
-
-getRIP :: Machine -> Int64
-getRIP = rip
-
-setRIP :: Int64 -> Machine -> Machine
-setRIP val m = m{ rip = val }
-
-
 -}
 
 
-step :: Machine -> Machine
-step M = M { mem = listArray (memoryFloor, memoryCeiling) (pad n0 ++ fs ++ pad n1 ++ ss ++ pad (n2+1) ) --get and set vals from mem
+step :: Machine -> Machinf
+step m= case (getMemory (getRIP m) m) of Inst (Movq [src,dst]) -> storeOperand dst (readOperand src m) m
+                                         Inst (Addq [src,dst]) -> storeOperand res (readOperand dst m) m --update machine dst res off zf cf
+                                                                                        where res = readOperand src m + readOperand dst m
+                                         Inst (Subq [src,dst]) -> storeOperand res (readOperand dst) m
+                                                                                        where res = readOperand dst m - readOperand src m
+                                         Inst (Imulq [src,dst]) -> storeOperand res (readOperand dst) m
+                                                                                        where res = readOperand src m * readOperand dst m
+                                         Inst (Notq [dst]) -> storeOperand (readOperand dst m)(not (readOperand dst m)) m
+                                         Inst (Andq [src,dst]) -> storeOperand res (readOperand dst) m
+                                                                                        where res = readOperand src m && readOperand dst m
+                                         Inst (Orq [src,dst]) -> error "i"
+                                         Inst (Xorq [src,dst]) -> error "i"
+                                         Inst (Shlq [imm, dst]) -> error "i"
+                                         Inst (Shrq [imm,dst]) -> error "i"
+                                         Inst (Sarq [imm,dst]) -> error "i"
+                                         Inst (Leaq [src,dst]) -> error "i"
+                                         Inst (Set condition [dst]) -> if checkCond condition then setRIP dst else _ --get address out of dst
+                                         Inst (Jmp [src]) -> error "i"
+                                         Inst (J condition [dst]) -> if checkCond condition then setRIP dst else _
+                                         Inst (Callq [src]) -> error "i"
+                                         Inst (Retq []) -> error "i"
+                                         otherwise -> error "i"
+
+readOperand:: Operand imm-> Machine -> Int64
+readOperand (Imm m) mchn = m
+readOperand (Reg r) mchn  = getRegister r mchn
+readOperand (IndImm i) mchn = snd (getMemory i mchn)
+readOperand (IndReg ir) mchn =  getMemory (getRegister ir mchn) mchn
+readOperand (IndBoth i r) mchn = getMemory(i + r)
+
+checkCond:: Condition -> Machine -> Bool
+checkCond c m = case c of Eq  -> getZF m
+                          Neq -> not (getZF m)
+                          Gt  -> (not(getSF m)) && ((not (getZF m)) xor getOF m)
+                          Ge  -> ((not(getSF m)) xor (getOF m))
+                          Lt  -> ((not(getSF m)) xor (getOF m))
+                          Le  -> (((getSF m) xor (getOF m)) || getZF m)
+
+storeOperand:: Operand imm-> int64 -> Machine -> Machine
+--storeOperand (Imm im) val m = error "cannot store at integer value"
+storeOperand (Reg r) val m = setRegister r val m
+storeOperand (IndImm i) val m = setMemory (getMemory i m) val m
+storeOperand (IndReg ir) val m = setMemory (getRegister ir m) val m
+storeOperand (IndBoth i r) val m = setMemory (getMemory(i + r)) val m
+
+
+
+--Imm imm                 -- $5
+-- | Reg Register            -- %rax
+-- | IndImm imm              -- (label)
+-- | IndReg Register         -- (%rax)
+-- | IndBoth Int64 Register  -- -4(%rax)
+
+
+
+
+
+
+
+
+
+  {-M { mem = listArray (memoryFloor, memoryCeiling) (pad n0 ++ fs ++ pad n1 ++ ss ++ pad (n2+1) ) --get and set vals from mem
            , regs = listArray (RAX, R15) (repeat 0) -- get and set vals from regs
            , flags = (False, False, False) --set flags after op
            , rip = setRIP --do op at rip set rip to next inst
@@ -107,7 +130,7 @@ step M = M { mem = listArray (memoryFloor, memoryCeiling) (pad n0 ++ fs ++ pad n
                   lowerAddr = min textAddr dataAddr
                   upperAddress = max textAddr dataAddr
                   pad n = take (fromIntegral n) (repeat (Byte 0))
-{-
+
 
 The `run` function loops your `step` function until the IP equals the pre-defined
 halt value, returning the final machine state.

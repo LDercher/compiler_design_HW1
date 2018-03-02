@@ -55,53 +55,63 @@ types).
 -}
 
 
-step :: Machine -> Machinf
-step m= case (getMemory (getRIP m) m) of Inst (Movq [src,dst]) -> storeOperand dst (readOperand src m) m
-                                         Inst (Addq [src,dst]) -> storeOperand res (readOperand dst m) m --update machine dst res off zf cf
+step :: Machine -> Machine
+step m= case (getMemory (getRIP m) m) of Inst (Movq, [src,dst]) -> storeOperand dst (readOperand src m) m
+                                         Inst (Addq, [src,dst]) -> storeOperand res (readOperand dst m) m --update machine dst res off zf cf
                                                                                         where res = readOperand src m + readOperand dst m
-                                         Inst (Subq [src,dst]) -> storeOperand res (readOperand dst) m
+                                         Inst (Subq, [src,dst]) -> storeOperand res (readOperand dst) m
                                                                                         where res = readOperand dst m - readOperand src m
-                                         Inst (Imulq [src,dst]) -> storeOperand res (readOperand dst) m
+                                         Inst (Imulq, [src,dst]) -> storeOperand res (readOperand dst) m
                                                                                         where res = readOperand src m * readOperand dst m
-                                         Inst (Notq [dst]) -> storeOperand (readOperand dst m)(not (readOperand dst m)) m
-                                         Inst (Andq [src,dst]) -> storeOperand res (readOperand dst) m
+                                         Inst (Notq, [dst]) -> storeOperand (readOperand dst m)(not (readOperand dst m)) m
+                                         Inst (Andq, [src,dst]) -> storeOperand res (readOperand dst) m
                                                                                         where res = readOperand src m && readOperand dst m
-                                         Inst (Orq [src,dst]) -> error "i"
-                                         Inst (Xorq [src,dst]) -> error "i"
-                                         Inst (Shlq [imm, dst]) -> error "i"
-                                         Inst (Shrq [imm,dst]) -> error "i"
-                                         Inst (Sarq [imm,dst]) -> error "i"
-                                         Inst (Leaq [src,dst]) -> error "i"
-                                         Inst (Set condition [dst]) -> if checkCond condition then setRIP dst else _ --get address out of dst
-                                         Inst (Jmp [src]) -> error "i"
-                                         Inst (J condition [dst]) -> if checkCond condition then setRIP dst else _
-                                         Inst (Callq [src]) -> error "i"
-                                         Inst (Retq []) -> error "i"
+                                         Inst (Orq, [src,dst]) -> error "i"
+                                         Inst (Xorq, [src,dst]) -> error "i"
+                                         Inst (Shlq, [imm, dst]) -> error "i"
+                                         Inst (Shrq, [imm,dst]) -> error "i"
+                                         Inst (Sarq, [imm,dst]) -> error "i"
+                                         Inst (Leaq, [src,dst]) -> error "i"
+                                         Inst (Set condition, [dst]) -> storeOperand dst res m
+                                                                                where res = (readOperand dst m) .&. 0xFF + if checkCond condition m then 1 else 0  --then storeOperand dst m else setRIP((getRIP m) + 4 ) m --get address out of dst
+                                         Inst (Jmp, [src]) -> error "i"
+                                         Inst (J condition, [dst]) -> if checkCond condition m then setRIP (readOperand dst m) m else setRIP((getRIP m) + 4 ) m
+                                         Inst (Callq, [src]) -> error "i"
+                                         Inst (Retq, []) -> error "i"
                                          otherwise -> error "i"
 
-readOperand:: Operand imm-> Machine -> Int64
+updateMachine:: Machine -> Operand Int64 -> Int64 -> Bool -> Bool -> Bool -> Machine
+updateMachine m d r o z s = storeOperand d r m $ setOF o m $ setZF z m $ setSF s m $ setRIP((getRIP m) + 4 ) m
+
+readOperand:: Operand Int64 -> Machine -> Int64
 readOperand (Imm m) mchn = m
 readOperand (Reg r) mchn  = getRegister r mchn
-readOperand (IndImm i) mchn = snd (getMemory i mchn)
-readOperand (IndReg ir) mchn =  getMemory (getRegister ir mchn) mchn
-readOperand (IndBoth i r) mchn = getMemory(i + r)
+readOperand (IndImm i) mchn = accessAddr i mchn
+readOperand (IndReg ir) mchn =  accessAddr (getRegister ir mchn) mchn
+readOperand (IndBoth i r) mchn = accessAddr (i + (getRegister r mchn)) mchn
+
+sbyteToWord8 :: SByte -> Word8
+sbyteToWord8 (Byte s) = s
+
+accessAddr:: Int64 -> Machine -> Int64
+accessAddr a m = fromBytes $ map (\n -> sbyteToWord8 $ getMemory (n + a) m) [0..7]
 
 checkCond:: Condition -> Machine -> Bool
 checkCond c m = case c of Eq  -> getZF m
                           Neq -> not (getZF m)
-                          Gt  -> (not(getSF m)) && ((not (getZF m)) xor getOF m)
-                          Ge  -> ((not(getSF m)) xor (getOF m))
-                          Lt  -> ((not(getSF m)) xor (getOF m))
-                          Le  -> (((getSF m) xor (getOF m)) || getZF m)
+                          Gt  -> ((not (getSF m)) && ((not(getZF m)) `xor` (getOF m)))
+                          Ge  -> ((not(getSF m)) `xor` (getOF m))
+                          Lt  -> ((not(getSF m)) `xor` (getOF m))
+                          Le  -> (((getSF m) `xor` (getOF m)) || getZF m)
 
-storeOperand:: Operand imm-> int64 -> Machine -> Machine
---storeOperand (Imm im) val m = error "cannot store at integer value"
+storeOperand:: Operand Int64 -> Int64 -> Machine -> Machine
 storeOperand (Reg r) val m = setRegister r val m
-storeOperand (IndImm i) val m = setMemory (getMemory i m) val m
-storeOperand (IndReg ir) val m = setMemory (getRegister ir m) val m
-storeOperand (IndBoth i r) val m = setMemory (getMemory(i + r)) val m
+storeOperand (IndImm i) val m = setMemIntToSybte i val m
+storeOperand (IndReg ir) val m = setMemIntToSybte (accessAddr (getRegister ir m) m) val m
+storeOperand (IndBoth i r) val m = setMemIntToSybte (accessAddr (i + (getRegister r m)) m) val m
 
-
+setMemIntToSybte :: Int64 -> Int64 -> Machine -> Machine
+setMemIntToSybte a s m = foldl (\m' (offset, byte) -> setMemory (offset+a) (Byte byte) m') m (zip [0..7] (fromQuad s))
 
 --Imm imm                 -- $5
 -- | Reg Register            -- %rax

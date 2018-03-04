@@ -63,12 +63,15 @@ step m= case (getMemory (getRIP m) m) of Inst (Movq, [src,dst]) -> storeOperand 
                                                                                         where res = readOperand src m - readOperand dst m
                                          Inst (Imulq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
                                                                                         where res = readOperand src m * readOperand dst m
-                                         Inst (Notq, [dst]) -> storeOperand dst (not (readOperand dst m)) m
-                                         Inst (Andq, [src,dst]) -> error "i"--storeOperand res (readOperand dst) m
-                                                                                       -- where res = readOperand src m && readOperand dst m
-                                         Inst (Orq, [src,dst]) -> error "i"
-                                         Inst (Xorq, [src,dst]) -> error "i"
-                                         Inst (Shlq, [imm, dst]) -> error "i"
+                                         Inst (Notq, [dst]) -> storeOperand dst (complement (readOperand dst m)) m --possible to set flags here?
+                                         Inst (Andq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
+                                                                                        where res = readOperand src m .&. readOperand dst m
+                                         Inst (Orq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
+                                                                                        where res = readOperand src m .|. readOperand dst m
+                                         Inst (Xorq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
+                                                                                        where res = (readOperand src m .|. readOperand dst m) .&. (complement(readOperand src m .&. readOperand dst m))
+                                         Inst (Shlq, [imm, dst]) -> error "i"--storeOperand dst res m
+                                                                                        --where res = shiftL imm (fromIntegral(readOperand dst m))
                                          Inst (Shrq, [imm,dst]) -> error "i"
                                          Inst (Sarq, [imm,dst]) -> error "i"
                                          Inst (Leaq, [src,dst]) -> error "i"

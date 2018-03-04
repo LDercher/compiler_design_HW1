@@ -57,15 +57,15 @@ types).
 
 step :: Machine -> Machine
 step m= case (getMemory (getRIP m) m) of Inst (Movq, [src,dst]) -> storeOperand dst (readOperand src m) m
-                                         Inst (Addq, [src,dst]) -> storeOperand res (readOperand dst m) m --update machine dst res off zf cf
+                                         Inst (Addq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
                                                                                         where res = readOperand src m + readOperand dst m
-                                         Inst (Subq, [src,dst]) -> storeOperand res (readOperand dst) m
-                                                                                        where res = readOperand dst m - readOperand src m
-                                         Inst (Imulq, [src,dst]) -> storeOperand res (readOperand dst) m
+                                         Inst (Subq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
+                                                                                        where res = readOperand src m - readOperand dst m
+                                         Inst (Imulq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
                                                                                         where res = readOperand src m * readOperand dst m
-                                         Inst (Notq, [dst]) -> storeOperand (readOperand dst m)(not (readOperand dst m)) m
-                                         Inst (Andq, [src,dst]) -> storeOperand res (readOperand dst) m
-                                                                                        where res = readOperand src m && readOperand dst m
+                                         Inst (Notq, [dst]) -> storeOperand dst (not (readOperand dst m)) m
+                                         Inst (Andq, [src,dst]) -> error "i"--storeOperand res (readOperand dst) m
+                                                                                       -- where res = readOperand src m && readOperand dst m
                                          Inst (Orq, [src,dst]) -> error "i"
                                          Inst (Xorq, [src,dst]) -> error "i"
                                          Inst (Shlq, [imm, dst]) -> error "i"
@@ -76,12 +76,29 @@ step m= case (getMemory (getRIP m) m) of Inst (Movq, [src,dst]) -> storeOperand 
                                                                                 where res = (readOperand dst m) .&. 0xFF + if checkCond condition m then 1 else 0  --then storeOperand dst m else setRIP((getRIP m) + 4 ) m --get address out of dst
                                          Inst (Jmp, [src]) -> error "i"
                                          Inst (J condition, [dst]) -> if checkCond condition m then setRIP (readOperand dst m) m else setRIP((getRIP m) + 4 ) m
+                                         Inst (Pushq, [src]) -> setRegister RSP ((getRegister RSP m)-4) $ setMemory (getRegister RSP m) (getMemory (readOperand src m) m) $ m
+                                         Inst (Popq, [dst]) -> storeOperand dst (getRegister RSP m) $ setRegister RSP ((getRegister RSP m)+ 4) $ m --may need to be changed
                                          Inst (Callq, [src]) -> error "i"
                                          Inst (Retq, []) -> error "i"
                                          otherwise -> error "i"
 
 updateMachine:: Machine -> Operand Int64 -> Int64 -> Bool -> Bool -> Bool -> Machine
-updateMachine m d r o z s = storeOperand d r m $ setOF o m $ setZF z m $ setSF s m $ setRIP((getRIP m) + 4 ) m
+updateMachine m d r o z s = storeOperand d r $ setOF o $ setZF z $ setSF s $ setRIP((getRIP m) + 4 ) $ m
+
+sameSign:: Int64 -> Int64 -> Int64 -> Bool
+sameSign s d r
+      | ((signum s == signum d) && (signum s /= signum r)) = False
+      | otherwise = True
+
+isZero:: Int64 -> Bool
+isZero i
+      | (i == 0) = True
+      | otherwise = False
+
+isNeg:: Int64 -> Bool
+isNeg i 
+      | (i < 0) = True
+      | otherwise = False
 
 readOperand:: Operand Int64 -> Machine -> Int64
 readOperand (Imm m) mchn = m
@@ -152,3 +169,16 @@ run initial = until ((haltAddr ==) . getRIP) step initial
 
 eval :: Machine -> Int64
 eval initial = getRegister RAX (run initial)
+
+{- 
+Helper funcs
+-}
+
+first:: (a,b,c) -> a
+first (x,_,_) = x
+
+second:: (a,b,c) -> b
+second (_,y,_) = y
+
+third:: (a,b,c) -> c
+third (_,_,z) = z

@@ -1,3 +1,11 @@
+{-
+author: Luke Dercher 
+class: EECS 665
+student_id: l446d901
+-}
+
+
+
 module Simulator where
 
 import Data.Bits
@@ -56,19 +64,19 @@ types).
 
 
 step :: Machine -> Machine
-step m= case (getMemory (getRIP m) m) of Inst (Movq, [src,dst]) -> updateMachine m dst (readOperand src m) False False False --possible to set flags here?
-                                         Inst (Addq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
+step m= case (getMemory (getRIP m) m) of Inst (Movq, [src,dst]) -> updateMachine m dst (readOperand src m) False False False
+                                         Inst (Addq, [src,dst]) -> updateMachine m dst res ((sameSign (readOperand src m) (readOperand dst m)) && (not (sameSign (readOperand src m) res))) (isZero res) (isNeg res)
                                                                                         where res = readOperand src m + readOperand dst m
-                                         Inst (Subq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
+                                         Inst (Subq, [src,dst]) -> updateMachine m dst res (((sameSign (readOperand src m) (readOperand dst m)) && (not (sameSign (readOperand src m) res))) || (readOperand src m) == minBound) (isZero res) (isNeg res)
                                                                                         where res = readOperand src m - readOperand dst m
-                                         Inst (Imulq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
+                                         Inst (Imulq, [src,dst]) -> updateMachine m dst res (if ((res `div` (readOperand src m) )== (readOperand dst m)) then True else False) (isZero res) (isNeg res)
                                                                                         where res = readOperand src m * readOperand dst m
-                                         Inst (Notq, [dst]) -> updateMachine m dst (complement (readOperand dst m)) False False False--possible to set flags here?
-                                         Inst (Andq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
+                                         Inst (Notq, [dst]) -> updateMachine m dst (complement (readOperand dst m)) (if ((readOperand dst m) == minBound) then True else False) False False
+                                         Inst (Andq, [src,dst]) -> updateMachine m dst res False (isZero res) (isNeg res)
                                                                                         where res = readOperand src m .&. readOperand dst m
-                                         Inst (Orq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
+                                         Inst (Orq, [src,dst]) -> updateMachine m dst res False (isZero res) (isNeg res)
                                                                                         where res = readOperand src m .|. readOperand dst m
-                                         Inst (Xorq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
+                                         Inst (Xorq, [src,dst]) -> updateMachine m dst res False (isZero res) (isNeg res)
                                                                                         where res = (readOperand src m .|. readOperand dst m) .&. (complement(readOperand src m .&. readOperand dst m))
                                          Inst (Shlq, [imm, dst]) -> updateMachine m dst res False (isZero res) (isNeg res)
                                                                                         where res = shiftL (fromIntegral(readOperand dst m)) (fromIntegral(readOperand imm m))
@@ -76,24 +84,27 @@ step m= case (getMemory (getRIP m) m) of Inst (Movq, [src,dst]) -> updateMachine
                                                                                         where res = shiftR (fromIntegral(readOperand dst m)) (fromIntegral(readOperand imm m))
                                          Inst (Sarq, [imm,dst]) -> updateMachine m dst res False (isZero res) (isNeg res)
                                                                                         where res = rotateR (fromIntegral(readOperand dst m)) (fromIntegral(readOperand imm m))
-                                         Inst (Leaq, [src,dst]) -> updateMachine m dst (readOperand src m) False False False --same as move on assumption that readOperand computes address offset
-                                         Inst (Set condition, [dst]) -> storeOperand dst res $ setRIP((getRIP m) + 4 ) $ m --set flags here?
-                                                                                where res = (readOperand dst m) .&. 0xFF + if checkCond condition m then 1 else 0 --get address out of dst
+                                         Inst (Leaq, [src,dst]) -> updateMachine m dst (computeIndAddr src m) False False False
+                                         Inst (Set condition, [dst]) -> storeOperand dst res $ setRIP((getRIP m) + 4 ) $ m
+                                                                                where res = (readOperand dst m) .&. 0xFF + if checkCond condition m then 1 else 0
                                          Inst (Jmp, [src]) -> setRIP(readOperand src m) m
                                          Inst (J condition, [dst]) -> if checkCond condition m then setRIP (readOperand dst m) m else setRIP((getRIP m) + 4 ) m
                                          Inst (Pushq, [src]) -> setRegister RSP ((getRegister RSP m)-4) $ setMemory (getRegister RSP m) (getMemory (readOperand src m) m) $ setRIP((getRIP m) + 4 ) $ m
-                                         Inst (Popq, [dst]) -> storeOperand dst (getRegister RSP m) $ setRegister RSP ((getRegister RSP m)+ 4) $ m --may need to be changed
+                                         Inst (Popq, [dst]) -> storeOperand dst (accessAddr (getRegister RSP m) m) $ setRegister RSP ((getRegister RSP m)+ 4) $ m
                                          Inst (Callq, [src]) -> setRegister RSP ((getRegister RSP m)-4) $ setMemory (getRIP m) (getMemory (readOperand src m) m) $ setRIP((getRIP m) + 4 ) $ m
-                                         Inst (Retq, []) -> error "i"--storeOperand RAX (getRIP m) $ setRegister RSP ((getRegister RSP m)+ 4) $ setRIP((getRIP m) + 4 ) $ m
+                                         Inst (Retq, []) -> setRegister RAX (accessAddr (getRIP m) m) $ setRegister RSP ((getRegister RSP m)+ 4) $ setRIP((getRIP m) + 4 ) $ m
                                          otherwise -> error "bad instruction"
 
 updateMachine:: Machine -> Operand Int64 -> Int64 -> Bool -> Bool -> Bool -> Machine
 updateMachine m d r o z s = storeOperand d r $ setOF o $ setZF z $ setSF s $ setRIP((getRIP m) + 4 ) $ m
 
-sameSign:: Int64 -> Int64 -> Int64 -> Bool
-sameSign s d r
-      | ((signum s == signum d) && (signum s /= signum r)) = False
-      | otherwise = True
+computeIndAddr:: Operand Int64 -> Machine -> Int64
+computeIndAddr (Imm m) mchn = m
+computeIndAddr (Reg r) mchn = getRegister r mchn
+computeIndAddr (IndBoth i r) mchn = i + (getRegister r mchn)
+
+sameSign:: Int64 -> Int64 -> Bool
+sameSign l r = if (signum l == signum r) then True else False
 
 isZero:: Int64 -> Bool
 isZero i

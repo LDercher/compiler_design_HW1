@@ -56,30 +56,32 @@ types).
 
 
 step :: Machine -> Machine
-step m= case (getMemory (getRIP m) m) of Inst (Movq, [src,dst]) -> storeOperand dst (readOperand src m) m
+step m= case (getMemory (getRIP m) m) of Inst (Movq, [src,dst]) -> updateMachine m dst (readOperand src m) False False False --possible to set flags here?
                                          Inst (Addq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
                                                                                         where res = readOperand src m + readOperand dst m
                                          Inst (Subq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
                                                                                         where res = readOperand src m - readOperand dst m
                                          Inst (Imulq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
                                                                                         where res = readOperand src m * readOperand dst m
-                                         Inst (Notq, [dst]) -> storeOperand dst (complement (readOperand dst m)) m --possible to set flags here?
+                                         Inst (Notq, [dst]) -> updateMachine m dst (complement (readOperand dst m)) False False False--possible to set flags here?
                                          Inst (Andq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
                                                                                         where res = readOperand src m .&. readOperand dst m
                                          Inst (Orq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
                                                                                         where res = readOperand src m .|. readOperand dst m
                                          Inst (Xorq, [src,dst]) -> updateMachine m dst res (sameSign (readOperand src m) (readOperand dst m) res) (isZero res) (isNeg res)
                                                                                         where res = (readOperand src m .|. readOperand dst m) .&. (complement(readOperand src m .&. readOperand dst m))
-                                         Inst (Shlq, [imm, dst]) -> error "i"--storeOperand dst res m
-                                                                                        --where res = shiftL imm (fromIntegral(readOperand dst m))
-                                         Inst (Shrq, [imm,dst]) -> error "i"
-                                         Inst (Sarq, [imm,dst]) -> error "i"
+                                         Inst (Shlq, [imm, dst]) -> updateMachine m dst res False (isZero res) (isNeg res)
+                                                                                        where res = shiftL (fromIntegral(readOperand dst m)) (fromIntegral(readOperand imm m))
+                                         Inst (Shrq, [imm,dst]) -> updateMachine m dst res False (isZero res) (isNeg res)
+                                                                                        where res = shiftR (fromIntegral(readOperand dst m)) (fromIntegral(readOperand imm m))
+                                         Inst (Sarq, [imm,dst]) -> updateMachine m dst res False (isZero res) (isNeg res)
+                                                                                        where res = rotateR (fromIntegral(readOperand dst m)) (fromIntegral(readOperand imm m))
                                          Inst (Leaq, [src,dst]) -> error "i"
-                                         Inst (Set condition, [dst]) -> storeOperand dst res m
+                                         Inst (Set condition, [dst]) -> storeOperand dst res $ setRIP((getRIP m) + 4 ) $ m
                                                                                 where res = (readOperand dst m) .&. 0xFF + if checkCond condition m then 1 else 0  --then storeOperand dst m else setRIP((getRIP m) + 4 ) m --get address out of dst
                                          Inst (Jmp, [src]) -> error "i"
                                          Inst (J condition, [dst]) -> if checkCond condition m then setRIP (readOperand dst m) m else setRIP((getRIP m) + 4 ) m
-                                         Inst (Pushq, [src]) -> setRegister RSP ((getRegister RSP m)-4) $ setMemory (getRegister RSP m) (getMemory (readOperand src m) m) $ m
+                                         Inst (Pushq, [src]) -> setRegister RSP ((getRegister RSP m)-4) $ setMemory (getRegister RSP m) (getMemory (readOperand src m) m) $ setRIP((getRIP m) + 4 ) $ m
                                          Inst (Popq, [dst]) -> storeOperand dst (getRegister RSP m) $ setRegister RSP ((getRegister RSP m)+ 4) $ m --may need to be changed
                                          Inst (Callq, [src]) -> error "i"
                                          Inst (Retq, []) -> error "i"

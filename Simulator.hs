@@ -21,6 +21,8 @@ import Debug.Trace
 -- Simulator                                                                  --
 --------------------------------------------------------------------------------
 
+--Test w/ run $ load $ assemble $ <name_prog> note: try with small prog for debugging
+
 {-
 
 Your task in this homework is to write a simulator for the core x86 instruction

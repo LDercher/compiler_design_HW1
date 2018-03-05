@@ -76,16 +76,16 @@ step m= case (getMemory (getRIP m) m) of Inst (Movq, [src,dst]) -> updateMachine
                                                                                         where res = shiftR (fromIntegral(readOperand dst m)) (fromIntegral(readOperand imm m))
                                          Inst (Sarq, [imm,dst]) -> updateMachine m dst res False (isZero res) (isNeg res)
                                                                                         where res = rotateR (fromIntegral(readOperand dst m)) (fromIntegral(readOperand imm m))
-                                         Inst (Leaq, [src,dst]) -> error "i"
-                                         Inst (Set condition, [dst]) -> storeOperand dst res $ setRIP((getRIP m) + 4 ) $ m
-                                                                                where res = (readOperand dst m) .&. 0xFF + if checkCond condition m then 1 else 0  --then storeOperand dst m else setRIP((getRIP m) + 4 ) m --get address out of dst
-                                         Inst (Jmp, [src]) -> error "i"
+                                         Inst (Leaq, [src,dst]) -> updateMachine m dst (readOperand src m) False False False --same as move on assumption that readOperand computes address offset
+                                         Inst (Set condition, [dst]) -> storeOperand dst res $ setRIP((getRIP m) + 4 ) $ m --set flags here?
+                                                                                where res = (readOperand dst m) .&. 0xFF + if checkCond condition m then 1 else 0 --get address out of dst
+                                         Inst (Jmp, [src]) -> setRIP(readOperand src m) m
                                          Inst (J condition, [dst]) -> if checkCond condition m then setRIP (readOperand dst m) m else setRIP((getRIP m) + 4 ) m
                                          Inst (Pushq, [src]) -> setRegister RSP ((getRegister RSP m)-4) $ setMemory (getRegister RSP m) (getMemory (readOperand src m) m) $ setRIP((getRIP m) + 4 ) $ m
                                          Inst (Popq, [dst]) -> storeOperand dst (getRegister RSP m) $ setRegister RSP ((getRegister RSP m)+ 4) $ m --may need to be changed
-                                         Inst (Callq, [src]) -> error "i"
-                                         Inst (Retq, []) -> error "i"
-                                         otherwise -> error "i"
+                                         Inst (Callq, [src]) -> setRegister RSP ((getRegister RSP m)-4) $ setMemory (getRIP m) (getMemory (readOperand src m) m) $ setRIP((getRIP m) + 4 ) $ m
+                                         Inst (Retq, []) -> error "i"--storeOperand RAX (getRIP m) $ setRegister RSP ((getRegister RSP m)+ 4) $ setRIP((getRIP m) + 4 ) $ m
+                                         otherwise -> error "bad instruction"
 
 updateMachine:: Machine -> Operand Int64 -> Int64 -> Bool -> Bool -> Bool -> Machine
 updateMachine m d r o z s = storeOperand d r $ setOF o $ setZF z $ setSF s $ setRIP((getRIP m) + 4 ) $ m
@@ -135,34 +135,8 @@ storeOperand (IndBoth i r) val m = setMemIntToSybte (accessAddr (i + (getRegiste
 setMemIntToSybte :: Int64 -> Int64 -> Machine -> Machine
 setMemIntToSybte a s m = foldl (\m' (offset, byte) -> setMemory (offset+a) (Byte byte) m') m (zip [0..7] (fromQuad s))
 
---Imm imm                 -- $5
--- | Reg Register            -- %rax
--- | IndImm imm              -- (label)
--- | IndReg Register         -- (%rax)
--- | IndBoth Int64 Register  -- -4(%rax)
 
-
-
-
-
-
-
-
-
-  {-M { mem = listArray (memoryFloor, memoryCeiling) (pad n0 ++ fs ++ pad n1 ++ ss ++ pad (n2+1) ) --get and set vals from mem
-           , regs = listArray (RAX, R15) (repeat 0) -- get and set vals from regs
-           , flags = (False, False, False) --set flags after op
-           , rip = setRIP --do op at rip set rip to next inst
-           }
-            where n0 = lowerAddr - memoryFloor
-                  fs = if textAddr < dataAddr then textSegment else dataSegment
-                  n1 = (fromIntegral (upperAddress - lowerAddr)) - (fromIntegral (length fs))
-                  ss = if textAddr < dataAddr then dataSegment else textSegment
-                  n2 = (fromIntegral(memoryCeiling - upperAddress)) - (fromIntegral (length ss))
-                  lowerAddr = min textAddr dataAddr
-                  upperAddress = max textAddr dataAddr
-                  pad n = take (fromIntegral n) (repeat (Byte 0))
-
+{-
 
 The `run` function loops your `step` function until the IP equals the pre-defined
 halt value, returning the final machine state.

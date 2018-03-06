@@ -14,7 +14,7 @@ import Data.Int
 import Data.Word
 import Machine
 import X86
-
+import Loader
 import Debug.Trace
 
 --------------------------------------------------------------------------------
@@ -69,8 +69,14 @@ step :: Machine -> Machine
 step m= case (getMemory (getRIP m) m) of Inst (Movq, [src,dst]) -> updateMachine m dst (readOperand src m) False False False
                                          Inst (Addq, [src,dst]) -> updateMachine m dst res ((sameSign (readOperand src m) (readOperand dst m)) && (not (sameSign (readOperand src m) res))) (isZero res) (isNeg res)
                                                                                         where res = readOperand src m + readOperand dst m
-                                         Inst (Subq, [src,dst]) -> updateMachine m dst res (((sameSign (readOperand src m) (readOperand dst m)) && (not (sameSign (readOperand src m) res))) || (readOperand src m) == minBound) (isZero res) (isNeg res)
-                                                                                        where res = readOperand src m - readOperand dst m
+                                         Inst (Incq, [src]) -> updateMachine m src res ((sameSign 1 (readOperand src m)) && (not (sameSign 1 res))) (isZero res) (isNeg res)
+                                                                                        where res = 1 + readOperand src m                                               
+                                         Inst (Subq, [src,dst]) -> updateMachine m dst res (((sameSign (-readOperand src m) (readOperand dst m)) && (not (sameSign (-readOperand src m) res))) || (readOperand src m) == minBound) (isZero res) (isNeg res)
+                                                                                        where res = readOperand dst m - readOperand src m
+                                         Inst (Decq, [src]) -> updateMachine m src res ((readOperand src m) == minBound) (isZero res) (isNeg res)
+                                                                                        where res = readOperand src m - 1
+                                         Inst (Cmpq, [src,dst]) -> setOF (((sameSign (-readOperand src m) (readOperand dst m)) && (not (sameSign (-readOperand src m) res))) || (readOperand src m) == minBound) $ setZF (isZero res) $ setSF (isNeg res) $ setRIP((getRIP m) + 4 ) $ m
+                                                                                        where res = readOperand dst m - readOperand src m
                                          Inst (Imulq, [src,dst]) -> updateMachine m dst res (if ((res `div` (readOperand src m) )== (readOperand dst m)) then True else False) (isZero res) (isNeg res)
                                                                                         where res = readOperand src m * readOperand dst m
                                          Inst (Notq, [dst]) -> updateMachine m dst (complement (readOperand dst m)) (if ((readOperand dst m) == minBound) then True else False) False False
@@ -92,9 +98,9 @@ step m= case (getMemory (getRIP m) m) of Inst (Movq, [src,dst]) -> updateMachine
                                          Inst (Jmp, [src]) -> setRIP(readOperand src m) m
                                          Inst (J condition, [dst]) -> if checkCond condition m then setRIP (readOperand dst m) m else setRIP((getRIP m) + 4 ) m
                                          Inst (Pushq, [src]) -> setRegister RSP ((getRegister RSP m)-4) $ setMemory (getRegister RSP m) (getMemory (readOperand src m) m) $ setRIP((getRIP m) + 4 ) $ m
-                                         Inst (Popq, [dst]) -> storeOperand dst (accessAddr (getRegister RSP m) m) $ setRegister RSP ((getRegister RSP m)+ 4) $ m
-                                         Inst (Callq, [src]) -> setRegister RSP ((getRegister RSP m)-4) $ setMemory (getRIP m) (getMemory (readOperand src m) m) $ setRIP((getRIP m) + 4 ) $ m
-                                         Inst (Retq, []) -> setRegister RAX (accessAddr (getRIP m) m) $ setRegister RSP ((getRegister RSP m)+ 4) $ setRIP((getRIP m) + 4 ) $ m
+                                         Inst (Popq, [dst]) -> storeOperand dst (accessAddr (getRegister RSP m) m) $ setRegister RSP ((getRegister RSP m)+ 4) $ setRIP((getRIP m) + 4 ) $ m
+                                         Inst (Callq, [src]) -> setRegister RSP ((getRegister RSP m)-8) $ setMemory (getRIP m) (getMemory (readOperand src m) m) $ setRIP(readOperand src m) $ m
+                                         Inst (Retq, []) -> setRIP (accessAddr (getRegister RSP m) m)  $ setRegister RSP ((getRegister RSP m)+ 4) $ m
                                          otherwise -> error "bad instruction"
 
 updateMachine:: Machine -> Operand Int64 -> Int64 -> Bool -> Bool -> Bool -> Machine
